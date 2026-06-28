@@ -1,0 +1,122 @@
+---
+import DashboardLayout from '../layouts/DashboardLayout.astro';
+
+let settings = {
+  hero_title: 'أكاديمية درسني',
+  phone_number: '966500000000',
+  whatsapp_number: '966500000000',
+  stats_students: 10000,
+  stats_courses: 250,
+  stats_success_rate: 98,
+  stats_tools: 50,
+};
+let message = '';
+
+import { env } from 'cloudflare:workers';
+
+const db = env?.DB;
+
+if (db) {
+  if (Astro.request.method === 'POST') {
+    try {
+      const data = await Astro.request.formData();
+      const phone_number = data.get('phone_number');
+      const whatsapp_number = data.get('whatsapp_number');
+      const stats_students = parseInt(data.get('stats_students')?.toString() || '0');
+      const stats_courses = parseInt(data.get('stats_courses')?.toString() || '0');
+      const stats_success_rate = parseInt(data.get('stats_success_rate')?.toString() || '0');
+      const stats_tools = parseInt(data.get('stats_tools')?.toString() || '0');
+
+      await db.prepare(`
+        UPDATE site_settings 
+        SET phone_number = ?, whatsapp_number = ?, stats_students = ?, stats_courses = ?, stats_success_rate = ?, stats_tools = ?
+        WHERE id = 1
+      `).bind(phone_number, whatsapp_number, stats_students, stats_courses, stats_success_rate, stats_tools).run();
+      
+      message = 'تم حفظ الإعدادات بنجاح!';
+    } catch (e) {
+      console.error(e);
+      message = 'حدث خطأ أثناء الحفظ';
+    }
+  }
+
+  try {
+    const res = await db.prepare("SELECT * FROM site_settings LIMIT 1").first();
+    if (res) {
+      settings = res;
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+---
+
+<DashboardLayout title="الإعدادات - لوحة التحكم">
+  <div class="flex flex-col gap-8 w-full max-w-5xl mx-auto">
+    <!-- Header -->
+    <div>
+      <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">إعدادات أرقام المنصة</h1>
+      <p class="text-slate-500 dark:text-slate-400 mt-1">إدارة الأرقام والإحصائيات وأرقام التواصل التي تظهر في الواجهة الرئيسية للموقع.</p>
+    </div>
+
+    {message && (
+      <div class="p-4 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 rounded-xl font-bold border border-green-200 dark:border-green-800">
+        {message}
+      </div>
+    )}
+
+    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 sm:p-8">
+      <form method="POST" class="flex flex-col gap-8">
+        
+        <div class="border-b border-slate-100 dark:border-slate-800 pb-4">
+          <h2 class="text-xl font-semibold text-slate-900 dark:text-white">أرقام التواصل</h2>
+          <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">تحديث أرقام الهاتف والواتساب للطلاب</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="flex flex-col gap-2">
+            <label for="whatsapp_number" class="text-sm font-medium text-slate-700 dark:text-slate-300">رقم الواتساب (لزر الواتساب العائم)</label>
+            <input type="text" id="whatsapp_number" name="whatsapp_number" value={settings.whatsapp_number} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+            <span class="text-xs text-slate-500">ملاحظة: اكتب الرقم مع رمز الدولة (مثال: 9665...)</span>
+          </div>
+          
+          <div class="flex flex-col gap-2">
+            <label for="phone_number" class="text-sm font-medium text-slate-700 dark:text-slate-300">رقم الهاتف (للاتصال)</label>
+            <input type="text" id="phone_number" name="phone_number" value={settings.phone_number} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+          </div>
+        </div>
+
+        <div class="border-b border-slate-100 dark:border-slate-800 pb-4 pt-4">
+          <h2 class="text-xl font-semibold text-slate-900 dark:text-white">إحصائيات المنصة (الأرقام في الصفحة الرئيسية)</h2>
+          <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">تعديل الإحصائيات التي تظهر في قسم الإحصائيات للزوار</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="flex flex-col gap-2">
+            <label for="stats_students" class="text-sm font-medium text-slate-700 dark:text-slate-300">عدد الطلاب (+)</label>
+            <input type="number" id="stats_students" name="stats_students" value={settings.stats_students} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="stats_courses" class="text-sm font-medium text-slate-700 dark:text-slate-300">عدد الكورسات (+)</label>
+            <input type="number" id="stats_courses" name="stats_courses" value={settings.stats_courses} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="stats_success_rate" class="text-sm font-medium text-slate-700 dark:text-slate-300">نسبة النجاح (%)</label>
+            <input type="number" id="stats_success_rate" name="stats_success_rate" value={settings.stats_success_rate} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="stats_tools" class="text-sm font-medium text-slate-700 dark:text-slate-300">عدد أدوات التعلم (+)</label>
+            <input type="number" id="stats_tools" name="stats_tools" value={settings.stats_tools} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-left" dir="ltr">
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="pt-6 flex justify-end gap-4 border-t border-slate-100 dark:border-slate-800">
+          <button type="submit" class="bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-700 hover:to-indigo-600 text-white px-8 py-3 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40">
+            حفظ التغييرات
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</DashboardLayout>

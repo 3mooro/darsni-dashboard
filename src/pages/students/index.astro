@@ -1,0 +1,92 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+
+let students = [];
+try {
+  const { env } = await import('cloudflare:workers');
+  const db = env?.DB;
+  if (db) {
+    const { results } = await db.prepare('SELECT * FROM students ORDER BY created_at DESC').all();
+    students = results || [];
+  } else {
+    students = [
+      { id: 1, name: 'أحمد محمود', email: 'ahmed@example.com', enrolled_courses: 3, join_date: '2023-01-15' },
+      { id: 2, name: 'سارة خالد', email: 'sara@example.com', enrolled_courses: 1, join_date: '2023-03-22' },
+      { id: 3, name: 'محمد علي', email: 'mohamed@example.com', enrolled_courses: 5, join_date: '2022-11-10' },
+      { id: 4, name: 'ليلى أحمد', email: 'laila@example.com', enrolled_courses: 2, join_date: '2023-07-05' },
+    ];
+  }
+} catch (e) {
+  console.error(e);
+}
+---
+
+<DashboardLayout title="الطلاب - لوحة التحكم">
+  <div class="flex flex-col gap-8 w-full max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">إدارة الطلاب</h1>
+        <p class="text-slate-500 dark:text-slate-400 mt-1">عرض وإدارة حسابات الطلاب المسجلين في المنصة</p>
+      </div>
+      <div class="relative w-full sm:w-auto">
+        <input type="text" placeholder="البحث عن طالب..." class="w-full sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-3 pr-12 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </div>
+    </div>
+
+    <!-- Table Section -->
+    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex justify-between items-center">
+        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-200">قائمة الطلاب</h2>
+        <span class="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 px-3 py-1 rounded-full text-sm font-medium">{students.length} طالب</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-right border-collapse">
+          <thead>
+            <tr class="bg-slate-50/50 dark:bg-slate-800/20 border-b border-slate-100 dark:border-slate-800">
+              <th class="py-4 px-6 text-sm font-medium text-slate-500 dark:text-slate-400">اسم الطالب</th>
+              <th class="py-4 px-6 text-sm font-medium text-slate-500 dark:text-slate-400">البريد الإلكتروني</th>
+              <th class="py-4 px-6 text-sm font-medium text-slate-500 dark:text-slate-400">الدورات المسجلة</th>
+              <th class="py-4 px-6 text-sm font-medium text-slate-500 dark:text-slate-400">تاريخ الانضمام</th>
+              <th class="py-4 px-6 text-sm font-medium text-slate-500 dark:text-slate-400">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+            {students.map((student) => (
+              <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+                <td class="py-4 px-6">
+                  <div class="flex items-center gap-3">
+                    <div class="h-10 w-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold shadow-md">
+                      {student.name.charAt(0)}
+                    </div>
+                    <div class="font-semibold text-slate-900 dark:text-white">{student.name}</div>
+                  </div>
+                </td>
+                <td class="py-4 px-6 text-slate-600 dark:text-slate-300 font-medium font-sans" dir="ltr" style="text-align: right;">{student.email}</td>
+                <td class="py-4 px-6">
+                  <span class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-sm">
+                    {student.enrolled_courses}
+                  </span>
+                </td>
+                <td class="py-4 px-6 text-slate-600 dark:text-slate-300">
+                  {new Date(student.join_date).toLocaleDateString('ar-EG')}
+                </td>
+                <td class="py-4 px-6">
+                  <button class="text-indigo-500 hover:text-indigo-600 font-medium text-sm transition-colors opacity-0 group-hover:opacity-100">
+                    عرض التفاصيل
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {students.length === 0 && (
+              <tr>
+                <td colspan="5" class="py-12 text-center text-slate-500 dark:text-slate-400">لا يوجد طلاب مسجلين حالياً.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</DashboardLayout>

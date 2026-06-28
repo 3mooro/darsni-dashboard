@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #8b5cf6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #c4b5fd;
+  --color-accent: #f43f5e;
+  
+  --font-cairo: "Cairo", sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+  }
+  
+  .dark {
+    --background: #020617;
+    --foreground: #f8fafc;
+  }
+}
+
+body {
+  font-family: var(--font-cairo);
+}

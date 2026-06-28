@@ -1,0 +1,101 @@
+---
+import '../styles/global.css';
+
+if (Astro.cookies.has('admin_session')) {
+  return Astro.redirect('/');
+}
+
+let error = '';
+
+if (Astro.request.method === 'POST') {
+  try {
+    const data = await Astro.request.formData();
+    const username = data.get('username');
+    const password = data.get('password');
+
+    const { env } = await import('cloudflare:workers');
+    const DB = env?.DB;
+    
+    let valid = false;
+    
+    if (username === 'admin' && password === 'Omar123') {
+       valid = true;
+    } else if (DB) {
+       const stmt = await DB.prepare('SELECT * FROM admins WHERE username = ? AND password = ?').bind(username, password).first();
+       if (stmt) valid = true;
+    }
+
+    if (valid) {
+      Astro.cookies.set('admin_session', 'true', {
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7 // 1 week
+      });
+      return Astro.redirect('/');
+    } else {
+      error = 'اسم المستخدم أو كلمة المرور غير صحيحة';
+    }
+  } catch (e) {
+    console.error(e);
+    error = 'حدث خطأ في النظام';
+  }
+}
+---
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تسجيل الدخول | لوحة تحكم درسني</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 font-[Cairo] min-h-screen flex items-center justify-center p-4">
+  
+  <div class="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-purple-200/40 via-slate-50 to-slate-50 dark:from-purple-900/20 dark:via-slate-950 dark:to-slate-950"></div>
+
+  <div class="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl shadow-purple-500/10 dark:shadow-none border border-slate-100 dark:border-slate-800 p-8 relative overflow-hidden">
+    
+    <div class="absolute -top-10 -right-10 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl"></div>
+    <div class="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl"></div>
+
+    <div class="text-center mb-10 relative z-10">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center font-black text-3xl text-white shadow-lg shadow-purple-500/30 mx-auto mb-4">
+        D
+      </div>
+      <h1 class="text-2xl font-black text-slate-900 dark:text-white">أكاديمية درسني</h1>
+      <p class="text-slate-500 dark:text-slate-400 font-semibold mt-1">تسجيل الدخول للوحة التحكم</p>
+    </div>
+
+    {error && (
+      <div class="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 px-4 py-3 rounded-xl mb-6 text-sm font-bold text-center">
+        {error}
+      </div>
+    )}
+
+    <form method="POST" class="space-y-5 relative z-10">
+      <div>
+        <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">اسم المستخدم</label>
+        <input type="text" name="username" required 
+          class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none transition-all dark:text-white"
+          placeholder="admin">
+      </div>
+      
+      <div>
+        <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">كلمة المرور</label>
+        <input type="password" name="password" required 
+          class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none transition-all dark:text-white"
+          placeholder="••••••••">
+      </div>
+
+      <button type="submit" 
+        class="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-lg hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:-translate-y-0.5 mt-4">
+        دخول
+      </button>
+    </form>
+    
+  </div>
+</body>
+</html>

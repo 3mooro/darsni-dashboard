@@ -40,13 +40,15 @@ const { title } = Astro.props;
             { href: '/courses', label: 'إدارة الدورات' },
             { href: '/students', label: 'الطلاب والطلبات' },
             { href: '/blog', label: 'المدونة والمقالات' },
-            { href: '/settings', label: 'إعدادات الموقع', extraClass: 'mt-auto' }
+            { href: 'https://darsni-site.pages.dev', label: 'زيارة الموقع ↗', extraClass: 'mt-auto bg-slate-900/50 text-purple-400 hover:bg-purple-900/50', target: '_blank' },
+            { href: '/settings', label: 'إعدادات الموقع' }
           ].map(link => {
             // Check if current path matches the link href. Handle trailing slashes.
-            const isActive = Astro.url.pathname === link.href || (link.href !== '/' && Astro.url.pathname.startsWith(link.href));
+            const isActive = Astro.url.pathname === link.href || (link.href !== '/' && !link.href.startsWith('http') && Astro.url.pathname.startsWith(link.href));
             return (
               <a 
                 href={link.href} 
+                target={link.target || '_self'}
                 class={`flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${link.extraClass || ''} ${
                   isActive 
                     ? 'bg-purple-600 text-white font-bold shadow-lg shadow-purple-600/20' 

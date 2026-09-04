@@ -1,0 +1,229 @@
+---
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const { id } = Astro.params;
+let course = null;
+let error = '';
+let success = '';
+
+const { env } = await import('cloudflare:workers');
+const db = env?.DB;
+
+if (db) {
+  if (Astro.request.method === 'POST') {
+    try {
+      const data = await Astro.request.formData();
+      const title = data.get('title') as string;
+      const category = data.get('category') as string;
+      const description = data.get('description') as string;
+      const price = parseFloat(data.get('price') as string) || 10;
+      const imageBase64 = data.get('image') as string;
+
+      const packages = [
+        {
+          name: "باقة 8 حصص",
+          sessions: 8,
+          pricePerSession: price,
+          totalPrice: price * 8,
+          features: ["تغطية المنهج كاملاً", "حل بنك الأسئلة", "مراجعة الاختبارات"],
+          isUrgent: false
+        },
+        {
+          name: "باقة حصتين",
+          sessions: 2,
+          pricePerSession: price,
+          totalPrice: price * 2,
+          features: ["شرح وحدة محددة", "حل واجبات"],
+          isUrgent: false
+        },
+        {
+          name: "حصة طارئة",
+          sessions: 1,
+          pricePerSession: price + 15,
+          totalPrice: price + 15,
+          isUrgent: true,
+          features: ["مراجعة ليلة الاختبار"]
+        }
+      ];
+
+      // Update the course
+      let query = `UPDATE courses SET title = ?, level = ?, body = ?, packages = ?`;
+      let params = [title, category, description, JSON.stringify(packages)];
+
+      if (imageBase64 && imageBase64.startsWith('data:image')) {
+        query += `, image = ?`;
+        params.push(imageBase64);
+      }
+      
+      query += ` WHERE id = ?`;
+      params.push(id);
+
+      await db.prepare(query).bind(...params).run();
+      success = 'تم تحديث الدورة بنجاح!';
+    } catch (e: any) {
+      error = 'حدث خطأ: ' + e.message;
+    }
+  }
+
+  // Load course details
+  course = await db.prepare('SELECT * FROM courses WHERE id = ?').bind(id).first();
+  if (course && course.packages) {
+    try {
+      const pkgs = JSON.parse(course.packages);
+      if (pkgs && pkgs.length > 0) {
+        course.price = pkgs[0].pricePerSession;
+      }
+    } catch(e) {}
+  }
+} else {
+  error = 'قاعدة البيانات غير متصلة';
+}
+
+if (!course) {
+  return Astro.redirect('/courses');
+}
+---
+
+<DashboardLayout title="تعديل دورة - لوحة التحكم">
+  <div class="flex flex-col gap-8 w-full max-w-4xl mx-auto">
+    <div>
+      <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">تعديل دورة</h1>
+      <p class="text-slate-500 dark:text-slate-400 mt-1">تحديث بيانات الدورة وأسعارها</p>
+    </div>
+
+    {success && (
+      <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-xl relative">
+        <strong class="font-bold">نجاح!</strong>
+        <span class="block sm:inline"> {success}</span>
+      </div>
+    )}
+    {error && (
+      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative">
+        <strong class="font-bold">خطأ!</strong>
+        <span class="block sm:inline"> {error}</span>
+      </div>
+    )}
+
+    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 sm:p-8">
+      <form method="POST" class="flex flex-col gap-6" id="course_form">
+        <!-- Title -->
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium text-slate-700 dark:text-slate-300">عنوان الدورة</label>
+          <input type="text" name="title" value={course.title} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500" required>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Category -->
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">المرحلة الدراسية</label>
+            <select name="category" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500" required>
+              <option value="primary" selected={course.level === 'primary'}>الابتدائي</option>
+              <option value="middle" selected={course.level === 'middle'}>المتوسط</option>
+              <option value="secondary" selected={course.level === 'secondary'}>الثانوي</option>
+              <option value="university" selected={course.level === 'university'}>الجامعي</option>
+            </select>
+          </div>
+          <!-- Price -->
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">سعر الحصة (ر.س)</label>
+            <input type="number" step="0.5" name="price" value={course.price || 10} class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500" required>
+          </div>
+        </div>
+
+        <!-- Image Upload -->
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium text-slate-700 dark:text-slate-300">صورة الدورة (اختياري - لتغيير الصورة الحالية)</label>
+          <div class="flex items-center gap-4">
+            <img src={course.image} alt="Current Image" class="w-24 h-24 rounded-xl object-cover border border-slate-200 dark:border-slate-700" id="image_preview" />
+            <input type="file" id="image_upload" accept="image/*" class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+          </div>
+          <input type="hidden" name="image" id="image_base64">
+        </div>
+
+        <!-- Rich Text -->
+        <div class="flex flex-col gap-2" dir="ltr">
+          <div class="flex justify-end" dir="rtl">
+            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">وصف الدورة (المحتوى)</label>
+          </div>
+          <div class="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+            <div id="editor-container" class="h-64 text-slate-900 dark:text-white !border-none" dir="rtl"></div>
+          </div>
+          <input type="hidden" name="description" id="description_input" value={course.body}>
+        </div>
+
+        <!-- Actions -->
+        <div class="pt-4 flex justify-end gap-4 border-t border-slate-100 dark:border-slate-800 mt-2">
+          <a href="/courses" class="px-6 py-3 rounded-xl font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">العودة</a>
+          <button type="submit" class="bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-700 hover:to-indigo-600 text-white px-8 py-3 rounded-xl font-medium shadow-lg shadow-purple-500/25">حفظ التعديلات</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</DashboardLayout>
+
+<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<style is:global>
+  .ql-toolbar { border: none !important; border-bottom: 1px solid var(--fallback-bc, #e2e8f0) !important; background-color: transparent !important; direction: ltr; text-align: left; }
+  .dark .ql-toolbar { border-bottom-color: #334155 !important; }
+  .ql-container { border: none !important; font-family: inherit !important; font-size: 1rem !important; }
+  .dark .ql-editor.ql-blank::before { color: #94a3b8 !important; }
+  .dark .ql-snow .ql-stroke { stroke: #cbd5e1 !important; }
+  .dark .ql-snow .ql-fill, .dark .ql-snow .ql-stroke.ql-fill { fill: #cbd5e1 !important; }
+  .dark .ql-snow .ql-picker { color: #cbd5e1 !important; }
+</style>
+<script is:inline src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script is:inline>
+  document.addEventListener("DOMContentLoaded", function() {
+    var quill = new Quill('#editor-container', {
+      theme: 'snow',
+      modules: { toolbar: [ [{ 'header': [1, 2, 3, false] }], ['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['link'], [{ 'align': [] }], ['clean'], [{ 'direction': 'rtl' }] ] },
+    });
+    quill.format('direction', 'rtl');
+    quill.format('align', 'right');
+    
+    // Set initial content
+    quill.root.innerHTML = document.querySelector('#description_input').value;
+
+    const fileInput = document.getElementById('image_upload');
+    const imagePreview = document.getElementById('image_preview');
+    const imageBase64 = document.getElementById('image_base64');
+
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 600;
+          let width = img.width;
+          let height = img.height;
+          
+          if (width > height) {
+            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+          } else {
+            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // Compress to 80% quality JPEG
+          imagePreview.src = dataUrl;
+          imageBase64.value = dataUrl;
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('course_form').addEventListener('submit', function() {
+      document.querySelector('#description_input').value = quill.root.innerHTML;
+    });
+  });
+</script>

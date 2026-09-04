@@ -12,13 +12,45 @@ if (Astro.request.method === 'POST') {
       const title = data.get('title') as string;
       const category = data.get('category') as string;
       const description = data.get('description') as string;
+      const price = parseFloat(data.get('price') as string) || 10;
+      let image = data.get('image') as string;
+      
       const slug = title.trim().replace(/\s+/g, '-');
-      const image = 'https://placehold.co/600x400/9333ea/ffffff?text=' + encodeURIComponent(title);
+      if (!image || !image.startsWith('data:image')) {
+        image = 'https://placehold.co/600x400/9333ea/ffffff?text=' + encodeURIComponent(title);
+      }
+      
+      const packages = [
+        {
+          name: "باقة 8 حصص",
+          sessions: 8,
+          pricePerSession: price,
+          totalPrice: price * 8,
+          features: ["تغطية المنهج كاملاً", "حل بنك الأسئلة", "مراجعة الاختبارات"],
+          isUrgent: false
+        },
+        {
+          name: "باقة حصتين",
+          sessions: 2,
+          pricePerSession: price,
+          totalPrice: price * 2,
+          features: ["شرح وحدة محددة", "حل واجبات"],
+          isUrgent: false
+        },
+        {
+          name: "حصة طارئة",
+          sessions: 1,
+          pricePerSession: price + 15,
+          totalPrice: price + 15,
+          isUrgent: true,
+          features: ["مراجعة ليلة الاختبار"]
+        }
+      ];
       
       await db.prepare(`
-        INSERT INTO courses (slug, title, instructor, rating, image, tag, level, body)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(slug, title, 'أكاديمية درسني', 5.0, image, 'جديد', category, description).run();
+        INSERT INTO courses (slug, title, instructor, rating, image, tag, level, body, packages)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(slug, title, 'أكاديمية درسني', 5.0, image, 'جديد', category, description, JSON.stringify(packages)).run();
       
       success = true;
     } else {
@@ -54,15 +86,15 @@ if (Astro.request.method === 'POST') {
 
     <!-- Form Container -->
     <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 sm:p-8">
-      <form method="POST" class="flex flex-col gap-6">
+      <form method="POST" class="flex flex-col gap-6" id="course_form">
         <!-- Title Input -->
         <div class="flex flex-col gap-2">
           <label for="title" class="text-sm font-medium text-slate-700 dark:text-slate-300">عنوان الدورة</label>
           <input type="text" id="title" name="title" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder:text-slate-400" placeholder="مثال: دورة الرياضيات المتقدمة" required>
         </div>
 
-        <!-- Category -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Category -->
           <div class="flex flex-col gap-2">
             <label for="category" class="text-sm font-medium text-slate-700 dark:text-slate-300">المرحلة الدراسية</label>
             <select id="category" name="category" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all appearance-none" required>
@@ -73,6 +105,21 @@ if (Astro.request.method === 'POST') {
               <option value="university">الجامعي</option>
             </select>
           </div>
+          <!-- Price -->
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">سعر الحصة (ر.س)</label>
+            <input type="number" step="0.5" name="price" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500" placeholder="مثال: 10" required>
+          </div>
+        </div>
+
+        <!-- Image Upload -->
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium text-slate-700 dark:text-slate-300">صورة الدورة (اختياري)</label>
+          <div class="flex items-center gap-4">
+            <img src="https://placehold.co/600x400/9333ea/ffffff?text=Image" alt="Preview" class="w-24 h-24 rounded-xl object-cover border border-slate-200 dark:border-slate-700 hidden" id="image_preview" />
+            <input type="file" id="image_upload" accept="image/*" class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+          </div>
+          <input type="hidden" name="image" id="image_base64">
         </div>
 
         <!-- Rich Text Description (Quill) -->
@@ -96,51 +143,73 @@ if (Astro.request.method === 'POST') {
       </form>
     </div>
   </div>
+
+  <!-- Quill Styles & Script -->
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+  <style is:global>
+    .ql-toolbar { border: none !important; border-bottom: 1px solid var(--fallback-bc, #e2e8f0) !important; background-color: transparent !important; border-radius: 0.75rem 0.75rem 0 0 !important; direction: ltr; text-align: left; }
+    .dark .ql-toolbar { border-bottom-color: #334155 !important; }
+    .ql-container { border: none !important; font-family: inherit !important; font-size: 1rem !important; }
+    .dark .ql-editor.ql-blank::before { color: #94a3b8 !important; }
+    .dark .ql-snow .ql-stroke { stroke: #cbd5e1 !important; }
+    .dark .ql-snow .ql-fill, .dark .ql-snow .ql-stroke.ql-fill { fill: #cbd5e1 !important; }
+    .dark .ql-snow .ql-picker { color: #cbd5e1 !important; }
+  </style>
+  <script is:inline src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+  <script is:inline>
+    document.addEventListener("DOMContentLoaded", function() {
+      var quill = new Quill('#editor-container', {
+        theme: 'snow',
+        modules: { toolbar: [ [{ 'header': [1, 2, 3, false] }], ['bold', 'italic', 'underline', 'strike'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['link'], [{ 'align': [] }], ['clean'], [{ 'direction': 'rtl' }] ] },
+        placeholder: 'اكتب وصفاً مفصلاً للدورة هنا...'
+      });
+      
+      quill.format('direction', 'rtl');
+      quill.format('align', 'right');
+
+      const fileInput = document.getElementById('image_upload');
+      const imagePreview = document.getElementById('image_preview');
+      const imageBase64 = document.getElementById('image_base64');
+
+      fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          const img = new Image();
+          img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 800;
+            const MAX_HEIGHT = 600;
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > height) {
+              if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+            } else {
+              if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            imagePreview.src = dataUrl;
+            imagePreview.classList.remove('hidden');
+            imageBase64.value = dataUrl;
+          }
+          img.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+      });
+
+      const form = document.querySelector('form');
+      form.addEventListener('submit', function() {
+        document.querySelector('#description_input').value = quill.root.innerHTML;
+      });
+    });
+  </script>
 </DashboardLayout>
-
-<!-- Quill Styles & Script -->
-<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-<style is:global>
-  .ql-toolbar {
-    border: none !important;
-    border-bottom: 1px solid var(--fallback-bc, #e2e8f0) !important;
-    background-color: transparent !important;
-    border-radius: 0.75rem 0.75rem 0 0 !important;
-    direction: ltr;
-    text-align: left;
-  }
-  .dark .ql-toolbar { border-bottom-color: #334155 !important; }
-  .ql-container { border: none !important; font-family: inherit !important; font-size: 1rem !important; }
-  .dark .ql-editor.ql-blank::before { color: #94a3b8 !important; }
-  .dark .ql-snow .ql-stroke { stroke: #cbd5e1 !important; }
-  .dark .ql-snow .ql-fill, .dark .ql-snow .ql-stroke.ql-fill { fill: #cbd5e1 !important; }
-  .dark .ql-snow .ql-picker { color: #cbd5e1 !important; }
-</style>
-<script is:inline src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
-<script is:inline>
-  document.addEventListener("DOMContentLoaded", function() {
-    var quill = new Quill('#editor-container', {
-      theme: 'snow',
-      modules: {
-        toolbar: [
-          [{ 'header': [1, 2, 3, false] }],
-          ['bold', 'italic', 'underline', 'strike'],
-          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-          ['link'],
-          [{ 'align': [] }],
-          ['clean'],
-          [{ 'direction': 'rtl' }]
-        ]
-      },
-      placeholder: 'اكتب وصفاً مفصلاً للدورة هنا...'
-    });
-    
-    quill.format('direction', 'rtl');
-    quill.format('align', 'right');
-
-    const form = document.querySelector('form');
-    form.addEventListener('submit', function() {
-      document.querySelector('#description_input').value = quill.root.innerHTML;
-    });
-  });
-</script>

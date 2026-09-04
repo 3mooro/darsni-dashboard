@@ -1,0 +1,145 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+let enrollments = [];
+let message = '';
+
+try {
+  const { env } = await import('cloudflare:workers');
+  const db = env?.DB;
+  if (db) {
+    if (Astro.request.method === 'POST') {
+      const data = await Astro.request.formData();
+      const action = data.get('action');
+      const enrollmentId = data.get('enrollment_id');
+      
+      if (action === 'approve' && enrollmentId) {
+        await db.prepare("UPDATE enrollments SET status = 'approved' WHERE id = ?").bind(enrollmentId).run();
+        message = 'تمت الموافقة على الاشتراك بنجاح!';
+      } else if (action === 'reject' && enrollmentId) {
+        await db.prepare("UPDATE enrollments SET status = 'rejected' WHERE id = ?").bind(enrollmentId).run();
+        message = 'تم رفض الاشتراك بنجاح!';
+      } else if (action === 'update_sessions' && enrollmentId) {
+        const completed = data.get('completed_sessions');
+        await db.prepare("UPDATE enrollments SET completed_sessions = ? WHERE id = ?").bind(completed, enrollmentId).run();
+        message = 'تم تحديث عدد الحصص بنجاح!';
+      } else if (action === 'delete' && enrollmentId) {
+        await db.prepare("DELETE FROM enrollments WHERE id = ?").bind(enrollmentId).run();
+        message = 'تم حذف الاشتراك بنجاح!';
+      }
+    }
+
+    const { results } = await db.prepare(`
+      SELECT e.*, u.name as student_name, u.email, u.phone, c.title as course_title 
+      FROM enrollments e 
+      JOIN users u ON e.user_id = u.id 
+      JOIN courses c ON e.course_id = c.id 
+      ORDER BY e.created_at DESC
+    `).all();
+    enrollments = results || [];
+  }
+} catch (e) {
+  console.error(e);
+}
+---
+
+<DashboardLayout title="الاشتراكات - لوحة التحكم">
+  <div class="flex flex-col gap-8 w-full max-w-7xl mx-auto">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">إدارة الاشتراكات</h1>
+        <p class="text-slate-500 dark:text-slate-400 mt-1">الموافقة على طلبات التسجيل وتحديث حصص الطلاب</p>
+      </div>
+    </div>
+
+    {message && (
+      <div class="p-4 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 rounded-xl font-bold border border-green-200 dark:border-green-800 shadow-sm">
+        {message}
+      </div>
+    )}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {enrollments.map(enrollment => {
+        const remaining = enrollment.total_sessions - enrollment.completed_sessions;
+        return (
+          <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col p-6 relative group">
+            {enrollment.status === 'pending' && (
+              <div class="absolute top-0 right-0 bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl shadow-sm">
+                قيد الانتظار
+              </div>
+            )}
+            {enrollment.status === 'approved' && (
+              <div class="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl shadow-sm">
+                نشط
+              </div>
+            )}
+            {enrollment.status === 'rejected' && (
+              <div class="absolute top-0 right-0 bg-rose-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl shadow-sm">
+                مرفوض
+              </div>
+            )}
+            
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white mb-1">{enrollment.course_title}</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <strong>الطالب:</strong> {enrollment.student_name} <br/>
+              <strong>الهاتف:</strong> <span dir="ltr">{enrollment.phone}</span>
+            </p>
+            
+            <div class="flex justify-between items-center mb-6">
+              <div class="text-center">
+                <span class="block text-xs text-slate-500 dark:text-slate-400">إجمالي</span>
+                <span class="block text-lg font-black text-slate-700 dark:text-slate-300">{enrollment.total_sessions}</span>
+              </div>
+              <div class="text-center">
+                <span class="block text-xs text-slate-500 dark:text-slate-400">مكتمل</span>
+                <span class="block text-lg font-black text-green-600 dark:text-green-400">{enrollment.completed_sessions}</span>
+              </div>
+              <div class="text-center">
+                <span class="block text-xs text-slate-500 dark:text-slate-400">متبقي</span>
+                <span class="block text-lg font-black text-purple-600 dark:text-purple-400">{remaining}</span>
+              </div>
+            </div>
+            
+            <div class="mt-auto space-y-3">
+              {enrollment.status === 'pending' && (
+                <div class="flex gap-2">
+                  <form method="POST" class="flex-1">
+                    <input type="hidden" name="action" value="approve" />
+                    <input type="hidden" name="enrollment_id" value={enrollment.id} />
+                    <button type="submit" class="w-full py-2 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 dark:text-green-400 rounded-xl font-bold transition-colors">موافقة</button>
+                  </form>
+                  <form method="POST" class="flex-1">
+                    <input type="hidden" name="action" value="reject" />
+                    <input type="hidden" name="enrollment_id" value={enrollment.id} />
+                    <button type="submit" class="w-full py-2 bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 dark:text-rose-400 rounded-xl font-bold transition-colors">رفض</button>
+                  </form>
+                </div>
+              )}
+              
+              {enrollment.status === 'approved' && (
+                <form method="POST" class="flex gap-2 items-center bg-slate-50 dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <input type="hidden" name="action" value="update_sessions" />
+                  <input type="hidden" name="enrollment_id" value={enrollment.id} />
+                  <label class="text-xs font-bold text-slate-600 dark:text-slate-400 pr-2">الحصص المكتملة:</label>
+                  <input type="number" name="completed_sessions" value={enrollment.completed_sessions} min="0" max={enrollment.total_sessions} class="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-center" />
+                  <button type="submit" class="mr-auto px-3 py-1.5 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors text-sm">تحديث</button>
+                </form>
+              )}
+
+              <form method="POST">
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="enrollment_id" value={enrollment.id} />
+                <button type="submit" onclick="return confirm('هل أنت متأكد من حذف هذا الاشتراك نهائياً؟')" class="w-full py-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl font-bold transition-colors text-sm mt-2">حذف الاشتراك</button>
+              </form>
+            </div>
+          </div>
+        )
+      })}
+      
+      {enrollments.length === 0 && (
+        <div class="col-span-full py-20 text-center text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+          لا توجد أي اشتراكات حتى الآن.
+        </div>
+      )}
+    </div>
+  </div>
+</DashboardLayout>

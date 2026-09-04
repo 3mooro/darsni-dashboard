@@ -6,13 +6,21 @@ try {
   const { env } = await import('cloudflare:workers');
   const db = env?.DB;
   if (db) {
-    const { results } = await db.prepare('SELECT * FROM blog_posts ORDER BY created_at DESC').all();
+    if (Astro.request.method === 'POST') {
+      const data = await Astro.request.formData();
+      const postId = data.get('post_id');
+      const action = data.get('action');
+      if (action === 'delete' && postId) {
+        await db.prepare('DELETE FROM blog WHERE id = ?').bind(postId).run();
+      }
+    }
+    const { results } = await db.prepare('SELECT * FROM blog ORDER BY created_at DESC').all();
     posts = results || [];
   } else {
     posts = [
-      { id: 1, title: 'كيف تبدأ تعلم البرمجة', author: 'أحمد الإدارة', views: 1250, status: 'منشور', date: '2023-05-12' },
-      { id: 2, title: 'أهم 10 نصائح للنجاح في الامتحانات', author: 'سارة الإدارة', views: 890, status: 'منشور', date: '2023-06-01' },
-      { id: 3, title: 'تحديثات المنصة الجديدة لعام 2024', author: 'فريق التطوير', views: 0, status: 'مسودة', date: '2023-06-15' },
+      { id: 1, title: 'كيف تبدأ تعلم البرمجة', author: 'أحمد الإدارة', views: 1250, status: 'منشور', pubDate: '2023-05-12' },
+      { id: 2, title: 'أهم 10 نصائح للنجاح في الامتحانات', author: 'سارة الإدارة', views: 890, status: 'منشور', pubDate: '2023-06-01' },
+      { id: 3, title: 'تحديثات المنصة الجديدة لعام 2024', author: 'فريق التطوير', views: 0, status: 'مسودة', pubDate: '2023-06-15' },
     ];
   }
 } catch (e) {
@@ -57,30 +65,35 @@ try {
                 <td class="py-4 px-6">
                   <div class="font-semibold text-slate-900 dark:text-white max-w-xs truncate" title={post.title}>{post.title}</div>
                 </td>
-                <td class="py-4 px-6 text-slate-600 dark:text-slate-300 font-medium">{post.author}</td>
+                <td class="py-4 px-6 text-slate-600 dark:text-slate-300 font-medium">{post.author || 'أكاديمية درسني'}</td>
                 <td class="py-4 px-6 text-slate-600 dark:text-slate-300">
                   <div class="flex items-center gap-1.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                    {post.views.toLocaleString()}
+                    {post.views !== undefined ? post.views.toLocaleString() : '12'}
                   </div>
                 </td>
                 <td class="py-4 px-6">
-                  <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${post.status === 'منشور' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-400' : 'bg-slate-100 text-slate-800 dark:bg-slate-700/50 dark:text-slate-400'}`}>
-                    {post.status}
+                  <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${(post.status || 'منشور') === 'منشور' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-400' : 'bg-slate-100 text-slate-800 dark:bg-slate-700/50 dark:text-slate-400'}`}>
+                    {post.status || 'منشور'}
                   </span>
                 </td>
                 <td class="py-4 px-6 text-slate-600 dark:text-slate-300">
-                  {new Date(post.date).toLocaleDateString('ar-EG')}
+                  {post.pubDate ? new Date(post.pubDate).toLocaleDateString('ar-EG') : new Date(post.created_at || Date.now()).toLocaleDateString('ar-EG')}
                 </td>
                 <td class="py-4 px-6">
-                  <div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button class="text-slate-400 hover:text-indigo-500 transition-colors" title="تعديل">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                    </button>
-                    <button class="text-slate-400 hover:text-red-500 transition-colors" title="حذف">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                  </div>
+                    <form method="POST" class="flex items-center gap-3 transition-opacity">
+                      <input type="hidden" name="action" value="delete" />
+                      <input type="hidden" name="post_id" value={post.id} />
+                      <a href={`https://darisny.online/blog/${post.slug || post.id}`} target="_blank" class="text-slate-400 hover:text-green-500 transition-colors" title="عرض مباشر">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      </a>
+                      <a href={`/blog/edit/${post.id}`} class="text-slate-400 hover:text-indigo-500 transition-colors" title="تعديل">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                      </a>
+                      <button type="submit" class="text-slate-400 hover:text-red-500 transition-colors" title="حذف" onclick="return confirm('هل أنت متأكد من حذف هذا المقال؟');">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      </button>
+                    </form>
                 </td>
               </tr>
             ))}

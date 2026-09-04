@@ -67,3 +67,13 @@ CREATE TABLE admins (
 INSERT INTO admins (username, password) VALUES ('admin', 'Omar123');
 INSERT INTO site_settings (hero_title, hero_subtitle, phone_number, whatsapp_number, stats_students, stats_courses, stats_success_rate, stats_tools, about_text) 
 VALUES ('أكاديمية درسني', 'منصتك التعليمية الأفضل للتفوق والنجاح', '966500000000', '966500000000', 10000, 250, 98, 50, 'أكاديمية متخصصة تقدم أفضل الدورات بأحدث التقنيات.');
+
+DROP TABLE IF EXISTS messages;
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT,
+  phone TEXT,
+  course TEXT,
+  message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

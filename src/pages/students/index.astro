@@ -1,33 +1,47 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-
 let students = [];
+let message = '';
+let error = '';
+
 try {
   const { env } = await import('cloudflare:workers');
   const db = env?.DB;
   if (db) {
-    const { results } = await db.prepare('SELECT * FROM students ORDER BY created_at DESC').all();
+    if (Astro.request.method === 'POST') {
+      const data = await Astro.request.formData();
+      const action = data.get('action');
+      const userId = data.get('user_id');
+      
+      if (action === 'reset_password' && userId) {
+        await db.prepare('UPDATE users SET password = ? WHERE id = ?').bind('12345678', userId).run();
+        message = 'تم إعادة تعيين كلمة المرور إلى 12345678 بنجاح!';
+      }
+    }
+
+    const { results } = await db.prepare(`
+      SELECT u.*, COUNT(e.id) as enrolled_courses 
+      FROM users u 
+      LEFT JOIN enrollments e ON u.id = e.user_id 
+      WHERE u.role = 'student' 
+      GROUP BY u.id 
+      ORDER BY u.created_at DESC
+    `).all();
     students = results || [];
-  } else {
-    students = [
-      { id: 1, name: 'أحمد محمود', email: 'ahmed@example.com', enrolled_courses: 3, join_date: '2023-01-15' },
-      { id: 2, name: 'سارة خالد', email: 'sara@example.com', enrolled_courses: 1, join_date: '2023-03-22' },
-      { id: 3, name: 'محمد علي', email: 'mohamed@example.com', enrolled_courses: 5, join_date: '2022-11-10' },
-      { id: 4, name: 'ليلى أحمد', email: 'laila@example.com', enrolled_courses: 2, join_date: '2023-07-05' },
-    ];
   }
-} catch (e) {
+} catch (e: any) {
   console.error(e);
+  // error = 'لا يوجد جدول users في قاعدة البيانات أو لم يتم توصيلها.';
 }
 ---
 
-<DashboardLayout title="الطلاب - لوحة التحكم">
+<DashboardLayout title="الطلاب المسجلين - لوحة التحكم">
   <div class="flex flex-col gap-8 w-full max-w-7xl mx-auto">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
       <div>
-        <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">إدارة الطلاب</h1>
-        <p class="text-slate-500 dark:text-slate-400 mt-1">عرض وإدارة حسابات الطلاب المسجلين في المنصة</p>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">الطلاب المسجلين</h1>
+        <p class="text-slate-500 dark:text-slate-400 mt-1">عرض حسابات الطلاب المسجلين بالمنصة (لديهم حساب دخول)</p>
       </div>
       <div class="relative w-full sm:w-auto">
         <input type="text" placeholder="البحث عن طالب..." class="w-full sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-3 pr-12 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all shadow-sm">
@@ -35,10 +49,22 @@ try {
       </div>
     </div>
 
+    {message && (
+      <div class="p-4 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 rounded-xl font-bold border border-green-200 dark:border-green-800 shadow-sm">
+        {message}
+      </div>
+    )}
+    
+    {error && (
+      <div class="p-4 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold border border-red-200 dark:border-red-800 shadow-sm">
+        {error}
+      </div>
+    )}
+
     <!-- Table Section -->
     <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
       <div class="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex justify-between items-center">
-        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-200">قائمة الطلاب</h2>
+        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-200">قائمة الحسابات</h2>
         <span class="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 px-3 py-1 rounded-full text-sm font-medium">{students.length} طالب</span>
       </div>
       <div class="overflow-x-auto">
@@ -54,28 +80,32 @@ try {
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
             {students.map((student) => (
-              <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+              <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                 <td class="py-4 px-6">
                   <div class="flex items-center gap-3">
                     <div class="h-10 w-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold shadow-md">
-                      {student.name.charAt(0)}
+                      {(student.name || 'ط').charAt(0)}
                     </div>
-                    <div class="font-semibold text-slate-900 dark:text-white">{student.name}</div>
+                    <div class="font-semibold text-slate-900 dark:text-white">{student.name || 'غير متوفر'}</div>
                   </div>
                 </td>
                 <td class="py-4 px-6 text-slate-600 dark:text-slate-300 font-medium font-sans" dir="ltr" style="text-align: right;">{student.email}</td>
                 <td class="py-4 px-6">
                   <span class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-sm">
-                    {student.enrolled_courses}
+                    {student.enrolled_courses || 0}
                   </span>
                 </td>
                 <td class="py-4 px-6 text-slate-600 dark:text-slate-300">
-                  {new Date(student.join_date).toLocaleDateString('ar-EG')}
+                  {student.created_at ? new Date(student.created_at).toLocaleDateString('ar-EG') : 'غير متوفر'}
                 </td>
                 <td class="py-4 px-6">
-                  <button class="text-indigo-500 hover:text-indigo-600 font-medium text-sm transition-colors opacity-0 group-hover:opacity-100">
-                    عرض التفاصيل
-                  </button>
+                  <form method="POST">
+                    <input type="hidden" name="action" value="reset_password" />
+                    <input type="hidden" name="user_id" value={student.id} />
+                    <button type="submit" class="text-rose-500 hover:text-rose-600 font-bold text-sm bg-rose-50 dark:bg-rose-900/20 px-3 py-1.5 rounded-lg transition-colors border border-rose-200 dark:border-rose-800/50 shadow-sm" onclick="return confirm('هل أنت متأكد من إعادة تعيين كلمة المرور إلى 12345678 ؟');">
+                      إعادة تعيين المرور
+                    </button>
+                  </form>
                 </td>
               </tr>
             ))}

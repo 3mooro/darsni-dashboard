@@ -13,14 +13,43 @@
   :root {
     --background: #f8fafc;
     --foreground: #0f172a;
+    --card: #ffffff;
+    --border: #e2e8f0;
   }
   
   .dark {
     --background: #020617;
     --foreground: #f8fafc;
+    --card: #0f172a;
+    --border: #1e293b;
   }
 }
 
 body {
   font-family: var(--font-cairo);
+}
+
+.ql-toolbar {
+  direction: ltr;
+  text-align: left;
+  background-color: #f8fafc;
+  border-radius: 0.5rem 0.5rem 0 0 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.dark .ql-toolbar {
+  background-color: #1e293b;
+  border-color: #334155 !important;
+}
+
+.ql-container {
+  font-family: 'Cairo', sans-serif !important;
+  font-size: 1.1rem !important;
+  border-radius: 0 0 0.5rem 0.5rem !important;
+  border-color: #e2e8f0 !important;
+  min-height: 300px;
+}
+
+.dark .ql-container {
+  border-color: #334155 !important;
 }

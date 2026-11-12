@@ -1,200 +1,404 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-let success = false;
-let error = '';
+import { Save, ArrowRight } from 'lucide-astro';
+import { env } from 'cloudflare:workers';
 
-if (Astro.request.method === 'POST') {
+const db = env.DB;
+const url = new URL(Astro.request.url);
+const id = url.searchParams.get('id');
+
+let error = "";
+let success = "";
+let post = {
+  slug: "", title: "", description: "", pubDate: new Date().toISOString().split('T')[0], heroImage: "", imageAlt: "", author: "أكاديمية درسني", readingTime: "5 دقائق", tags: "[]", body: ""
+};
+
+// Ensure optional blog columns exist (schema parity with the KSA dashboard)
+for (const ddl of [
+  "ALTER TABLE blog ADD COLUMN imageAlt TEXT",
+  "ALTER TABLE blog ADD COLUMN readingTime TEXT",
+  "ALTER TABLE blog ADD COLUMN views INTEGER DEFAULT 0",
+  "ALTER TABLE blog ADD COLUMN updated_at DATETIME"
+]) {
+  try { await db.prepare(ddl).run(); } catch {}
+}
+
+// Fetch existing post if ID is provided (Edit mode)
+if (id && Astro.request.method === "GET") {
   try {
-    const { env } = await import('cloudflare:workers');
-    const db = env?.DB;
-    if (db) {
-      const data = await Astro.request.formData();
-      const title = data.get('title') as string;
-      let slugInput = data.get('slug') as string;
-      const tags = data.get('tags') as string;
-      const content = data.get('content') as string;
-      
-      const slug = slugInput ? slugInput.trim().replace(/\s+/g, '-') : title.trim().replace(/\s+/g, '-');
-      const tagsJson = JSON.stringify(tags.split(',').map(t => t.trim()).filter(Boolean));
-      
-      let image = data.get('image') as string;
-      if (!image || !image.startsWith('data:image')) {
-        image = 'https://placehold.co/1200x630/9333ea/ffffff?text=' + encodeURIComponent(title);
+    const existing = await db.prepare("SELECT * FROM blog WHERE id = ?").bind(id).first();
+    if (existing) {
+      post = existing as any;
+      if (post.pubDate) {
+        post.pubDate = new Date(post.pubDate).toISOString().split('T')[0]; // Format for input type="date"
       }
-      
-      await db.prepare(`
-        INSERT INTO blog (slug, title, description, body, tags, heroImage, pubDate)
-        VALUES (?, ?, ?, ?, ?, ?, date('now'))
-      `).bind(slug, title, content.substring(0, 150).replace(/<[^>]+>/g, ''), content, tagsJson, image).run();
-      
-      success = true;
     } else {
-      error = 'قاعدة البيانات غير متصلة';
+      error = "المقال غير موجود.";
+    }
+  } catch (e) {
+    error = "خطأ في جلب بيانات المقال.";
+  }
+}
+
+// Handle Form Submission (Add or Update)
+if (Astro.request.method === "POST") {
+  const data = await Astro.request.formData();
+  
+  post = {
+    id: id || undefined,
+    slug: data.get("slug") as string,
+    title: data.get("title") as string,
+    description: data.get("description") as string,
+    pubDate: data.get("pubDate") as string,
+    heroImage: data.get("heroImage") as string,
+    imageAlt: data.get("imageAlt") as string,
+    author: data.get("author") as string,
+    readingTime: data.get("readingTime") as string,
+    tags: data.get("tags") as string,
+    body: data.get("body") as string,
+  } as any;
+
+  try {
+    if (!post.slug || !post.title) throw new Error("يجب إدخال الرابط والعنوان.");
+    try { JSON.parse(post.tags); } catch { throw new Error("تنسيق JSON غير صحيح لحقل الوسوم (Tags)."); }
+
+    const isoDate = new Date(post.pubDate).toISOString();
+
+    if (id) {
+      await db.prepare(`
+        UPDATE blog SET 
+          slug = ?, title = ?, description = ?, pubDate = ?, heroImage = ?, imageAlt = ?, author = ?, readingTime = ?, tags = ?, body = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(
+        post.slug, post.title, post.description, isoDate, post.heroImage, post.imageAlt, post.author, post.readingTime, post.tags, post.body, id
+      ).run();
+      success = "تم تحديث المقال بنجاح!";
+    } else {
+      await db.prepare(`
+        INSERT INTO blog (slug, title, description, pubDate, heroImage, imageAlt, author, readingTime, tags, body)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        post.slug, post.title, post.description, isoDate, post.heroImage, post.imageAlt, post.author, post.readingTime, post.tags, post.body
+      ).run();
+      success = "تم نشر المقال بنجاح!";
+      // Clear form on add
+      post = { slug: "", title: "", description: "", pubDate: new Date().toISOString().split('T')[0], heroImage: "", imageAlt: "", author: "أكاديمية درسني", readingTime: "5 دقائق", tags: "[]", body: "" } as any;
     }
   } catch (e: any) {
-    console.error(e);
-    error = 'حدث خطأ: ' + e.message;
+    error = e.message || "حدث خطأ أثناء الحفظ. تأكد من عدم تكرار الرابط (Slug).";
   }
 }
 ---
 
-<DashboardLayout title="إضافة مقال جديد - لوحة التحكم">
-  <div class="flex flex-col gap-8 w-full max-w-4xl mx-auto">
-    <!-- Header -->
-    <div>
-      <h1 class="text-3xl font-bold text-slate-900 dark:text-white font-cairo">إضافة مقال جديد</h1>
-      <p class="text-slate-500 dark:text-slate-400 mt-1">اكتب مقالاً جديداً لمشاركته مع زوار المنصة والطلاب</p>
-    </div>
+<DashboardLayout title={id ? "تعديل المقال" : "كتابة مقال جديد"}>
+	<div class="flex items-center gap-4 mb-8">
+		<a href="/blog" class="p-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full transition-colors">
+			<ArrowRight class="w-5 h-5" />
+		</a>
+		<div>
+			<h2 class="text-3xl font-black text-slate-800 dark:text-white">{id ? "تعديل المقال" : "كتابة مقال جديد"}</h2>
+			<p class="text-slate-500 dark:text-slate-400 font-bold mt-1">انشر محتوى مميز لطلابك ولمحركات البحث.</p>
+		</div>
+	</div>
 
-    {success && (
-      <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-xl relative" role="alert">
-        <strong class="font-bold">نجاح!</strong>
-        <span class="block sm:inline"> تم إضافة المقال بنجاح.</span>
-      </div>
-    )}
-    {error && (
-      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative" role="alert">
-        <strong class="font-bold">خطأ!</strong>
-        <span class="block sm:inline"> {error}</span>
-      </div>
-    )}
+	{error && <div class="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400 px-6 py-4 rounded-2xl mb-8 font-bold flex items-center gap-3"><span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span> {error}</div>}
+	{success && <div class="bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 px-6 py-4 rounded-2xl mb-8 font-bold flex items-center gap-3"><span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> {success}</div>}
 
-    <!-- Form Container -->
-    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 sm:p-8">
-      <form method="POST" class="flex flex-col gap-6" id="blog_form">
-        <!-- Title Input -->
-        <div class="flex flex-col gap-2">
-          <label for="title" class="text-sm font-medium text-slate-700 dark:text-slate-300">عنوان المقال</label>
-          <input type="text" id="title" name="title" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder:text-slate-400" placeholder="اكتب عنواناً جذاباً لمقالك..." required>
-        </div>
+	<div class="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 p-8">
+		<form method="POST" class="space-y-6">
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+				<!-- Basic Info -->
+				<div class="md:col-span-2">
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">عنوان المقال <span class="text-red-500">*</span></label>
+					<input type="text" name="title" value={post.title} required class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" placeholder="مثال: كيف تستعد لاختبار القدرات؟" />
+				</div>
+				
+				<div class="md:col-span-2">
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">الوصف المختصر (SEO)</label>
+					<input type="text" name="description" value={post.description} class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" placeholder="وصف قصير يظهر في جوجل..." />
+				</div>
 
-        <!-- Slug Input -->
-        <div class="flex flex-col gap-2">
-          <label for="slug" class="text-sm font-medium text-slate-700 dark:text-slate-300">الرابط المخصص للمقال (اختياري)</label>
-          <input type="text" id="slug" name="slug" dir="ltr" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder:text-slate-400" placeholder="مثال: how-to-learn-math (سيتم استخدام العنوان تلقائياً إذا تُرك فارغاً)">
-        </div>
+				<div>
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">الرابط (Slug - إنجليزي بدون مسافات) <span class="text-red-500">*</span></label>
+					<input type="text" name="slug" value={post.slug} required class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-left text-slate-800 dark:text-white" dir="ltr" placeholder="how-to-prepare-qiyas" />
+				</div>
+				
+				<div>
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">تاريخ النشر</label>
+					<input type="date" name="pubDate" value={post.pubDate} class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" />
+				</div>
 
-        <div class="flex flex-col gap-2">
-          <label for="tags" class="text-sm font-medium text-slate-700 dark:text-slate-300">الكلمات المفتاحية (Tags)</label>
-          <input type="text" id="tags" name="tags" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder:text-slate-400" placeholder="مثال: برمجة, تعليم, تقنية (مفصولة بفاصلة)">
-        </div>
+				<div class="md:col-span-2">
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">صورة الغلاف (رابط أو رفع ملف)</label>
+					<div class="flex gap-4 items-center">
+						<input type="url" name="heroImage" id="heroImage-input" value={post.heroImage} class="flex-1 p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-left text-slate-600 dark:text-slate-300" dir="ltr" placeholder="https://... أو اضغط لرفع صورة" />
+						<label class="cursor-pointer bg-purple-100 hover:bg-purple-200 dark:bg-purple-500/15 dark:hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 font-bold py-4 px-6 rounded-2xl transition-colors whitespace-nowrap">
+							رفع صورة
+							<input type="file" id="image-upload" accept="image/png, image/jpeg, image/webp" class="hidden" />
+						</label>
+					</div>
+					<p class="text-xs text-slate-500 dark:text-slate-400 mt-2 font-bold">يفضل رفع صور بحجم أقل من 1 ميجابايت لضمان سرعة الموقع.</p>
+				</div>
 
-        <!-- Image Upload -->
-        <div class="flex flex-col gap-2">
-          <label class="text-sm font-medium text-slate-700 dark:text-slate-300">صورة المقال الرئيسية</label>
-          <div class="flex items-center gap-4">
-            <img src="https://placehold.co/1200x630/9333ea/ffffff?text=Image" alt="Preview" class="w-32 h-20 rounded-xl object-cover border border-slate-200 dark:border-slate-700 hidden" id="image_preview" />
-            <input type="file" id="image_upload" accept="image/*" class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
-          </div>
-          <input type="hidden" name="image" id="image_base64">
-        </div>
+				<div class="md:col-span-2">
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">النص البديل للصورة (Alt Text - ضروري جداً للسيو)</label>
+					<input type="text" name="imageAlt" value={post.imageAlt} class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" placeholder="وصف دقيق للصورة ليقرأه جوجل ومحركات البحث..." />
+				</div>
 
-        <!-- Rich Text Description (Quill) -->
-        <div class="flex flex-col gap-2" dir="ltr">
-          <div class="flex justify-end" dir="rtl">
-            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">محتوى المقال</label>
-          </div>
-          <div class="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-500 transition-all bg-slate-50 dark:bg-slate-800">
-            <div id="blog-editor-container" class="h-96 text-slate-900 dark:text-white !border-none" dir="rtl"></div>
-          </div>
-          <input type="hidden" name="content" id="content_input">
-        </div>
+				<div>
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">الكاتب</label>
+					<input type="text" name="author" value={post.author} class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" />
+				</div>
+				<div>
+					<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2">وقت القراءة التقريبي</label>
+					<input type="text" name="readingTime" value={post.readingTime} class="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-bold text-slate-800 dark:text-white" placeholder="مثال: 5 دقائق" />
+				</div>
+			</div>
 
-        <!-- Actions -->
-        <div class="pt-4 flex justify-end gap-4 border-t border-slate-100 dark:border-slate-800 mt-2">
-          <a href="/blog" class="px-6 py-3 rounded-xl font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">العودة</a>
-          <button type="submit" class="bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-700 hover:to-indigo-600 text-white px-8 py-3 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40">
-            نشر المقال
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
+			<hr class="border-slate-100 dark:border-slate-800 my-8" />
 
-  <!-- Quill Styles & Script -->
-  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-  <style is:global>
-    .ql-toolbar { border: none !important; border-bottom: 1px solid var(--fallback-bc, #e2e8f0) !important; background-color: transparent !important; border-radius: 0.75rem 0.75rem 0 0 !important; direction: ltr; text-align: left; }
-    .dark .ql-toolbar { border-bottom-color: #334155 !important; }
-    .ql-container { border: none !important; font-family: inherit !important; font-size: 1.05rem !important; line-height: 1.8 !important; }
-    .dark .ql-editor.ql-blank::before { color: #94a3b8 !important; }
-    .dark .ql-snow .ql-stroke { stroke: #cbd5e1 !important; }
-    .dark .ql-snow .ql-fill, .dark .ql-snow .ql-stroke.ql-fill { fill: #cbd5e1 !important; }
-    .dark .ql-snow .ql-picker { color: #cbd5e1 !important; }
-  </style>
-  <script is:inline src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
-  <script is:inline>
-    document.addEventListener("DOMContentLoaded", function() {
-      var quill = new Quill('#blog-editor-container', {
-        theme: 'snow',
-        modules: {
-          toolbar: [
-            [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-            [{ 'font': [] }],
-            [{ 'size': ['small', false, 'large', 'huge'] }],
-            ['bold', 'italic', 'underline', 'strike', 'blockquote'],
-            [{ 'color': [] }, { 'background': [] }],
-            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-            [{ 'script': 'sub'}, { 'script': 'super' }],
-            [{ 'indent': '-1'}, { 'indent': '+1' }],
-            ['link', 'image', 'video'],
-            [{ 'align': [] }],
-            [{ 'direction': 'rtl' }],
-            ['clean']
-          ],
-          clipboard: {
-            matchVisual: false
-          }
-        },
-        placeholder: 'ابدأ بكتابة مقالك الرائع هنا...'
-      });
-      
-      quill.format('direction', 'rtl');
-      quill.format('align', 'right');
+			<div>
+				<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2 flex justify-between">
+					<span>الوسوم - Tags (JSON)</span>
+				</label>
+				<input type="text" name="tags" value={post.tags} class="w-full p-4 bg-slate-900 text-green-400 font-mono text-sm border border-slate-800 rounded-2xl focus:ring-4 focus:ring-purple-500/20 outline-none transition-all text-left" dir="ltr" />
+				<p class="text-xs text-slate-400 mt-2 font-bold" dir="ltr">Example: ["قدرات", "نصائح"]</p>
+			</div>
 
-      const fileInput = document.getElementById('image_upload');
-      const imagePreview = document.getElementById('image_preview');
-      const imageBase64 = document.getElementById('image_base64');
+			<div>
+				<label class="block text-sm font-black text-slate-700 dark:text-slate-300 mb-2 flex justify-between items-center">
+					<span>محتوى المقال (Rich Text Editor)</span>
+					<button type="button" id="ai-generate-btn" class="text-xs bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 font-bold transition-colors flex items-center gap-1">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.35 2.22 2.3 2.8 2.02 1.06-0.5 1.22-3.17 2.2-3.17 1.67 0 3-1.36 3-3.03 0-1.66-1.33-3.02-3-3.02z"/><path d="m13 15 2 2"/><path d="m16 12 2 2"/></svg>
+						توليد بواسطة AI
+					</button>
+				</label>
+				<input type="hidden" name="body" id="body-input" value={post.body} />
+				<div class="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden bg-white">
+					<div id="editor-container" class="bg-white" style="height: 400px; direction: rtl; text-align: right; font-family: 'Cairo', sans-serif;">
+						<Fragment set:html={post.body} />
+					</div>
+				</div>
+			</div>
 
-      fileInput.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.onload = function(event) {
-          const img = new Image();
-          img.onload = function() {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1200;
-            const MAX_HEIGHT = 630;
-            let width = img.width;
-            let height = img.height;
-            
-            if (width > height) {
-              if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-            } else {
-              if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            imagePreview.src = dataUrl;
-            imagePreview.classList.remove('hidden');
-            imageBase64.value = dataUrl;
-          }
-          img.src = event.target.result;
-        }
-        reader.readAsDataURL(file);
-      });
-
-      const form = document.querySelector('form');
-      form.addEventListener('submit', function() {
-        document.querySelector('#content_input').value = quill.root.innerHTML;
-      });
-    });
-  </script>
+			<div class="flex justify-end pt-4">
+				<button type="submit" class="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-700 hover:to-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-lg transition-all shadow-lg shadow-purple-500/30 hover:-translate-y-1">
+					<Save class="w-6 h-6" /> نشر وحفظ المقال
+				</button>
+			</div>
+		</form>
+	</div>
 </DashboardLayout>
+
+<!-- Quill Editor CSS & JS -->
+<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<script is:inline src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script is:inline>
+	document.addEventListener('DOMContentLoaded', function() {
+		var quill = new Quill('#editor-container', {
+			theme: 'snow',
+			modules: {
+				toolbar: {
+					container: [
+						[{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+						['bold', 'italic', 'underline', 'strike'],
+						[{ 'color': [] }, { 'background': [] }],
+						[{ 'align': [] }],
+						[{ 'list': 'ordered'}, { 'list': 'bullet' }],
+						['link', 'image'],
+						['clean']
+					],
+					handlers: {
+						image: function() {
+							var range = this.quill.getSelection();
+							var value = prompt('أدخل رابط الصورة:');
+							if(value){
+								var alt = prompt('أدخل النص البديل للصورة (SEO):');
+								this.quill.insertEmbed(range.index, 'image', value, Quill.sources.USER);
+								if(alt) {
+									// Add alt text to the inserted image
+									setTimeout(() => {
+										const imgs = document.querySelectorAll('#editor-container img');
+										imgs.forEach(img => {
+											if(img.src === value && !img.alt) {
+												img.alt = alt;
+												img.title = alt;
+											}
+										});
+									}, 100);
+								}
+								this.quill.setSelection(range.index + 1);
+							}
+						}
+					}
+				}
+			}
+		});
+
+		var bodyInput = document.getElementById('body-input');
+		
+		quill.on('text-change', function() {
+			var html = quill.root.innerHTML;
+			if (html === '<p><br></p>') html = '';
+			if (bodyInput) bodyInput.value = html;
+		});
+
+		// Image Upload Base64 Handler with Compression
+		var imageUpload = document.getElementById('image-upload');
+		var heroImageInput = document.getElementById('heroImage-input');
+		
+		if (imageUpload && heroImageInput) {
+			imageUpload.addEventListener('change', function(e) {
+				var file = e.target.files[0];
+				if (!file) return;
+				
+				var reader = new FileReader();
+				reader.onload = function(event) {
+					var img = new Image();
+					img.onload = function() {
+						var canvas = document.createElement('canvas');
+						var MAX_WIDTH = 800;
+						var MAX_HEIGHT = 800;
+						var width = img.width;
+						var height = img.height;
+
+						if (width > height) {
+							if (width > MAX_WIDTH) {
+								height *= MAX_WIDTH / width;
+								width = MAX_WIDTH;
+							}
+						} else {
+							if (height > MAX_HEIGHT) {
+								width *= MAX_HEIGHT / height;
+								height = MAX_HEIGHT;
+							}
+						}
+						canvas.width = width;
+						canvas.height = height;
+						var ctx = canvas.getContext('2d');
+						ctx.drawImage(img, 0, 0, width, height);
+						
+						// Compress to high quality JPEG to save massive space
+						var dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+						heroImageInput.value = dataUrl;
+						alert("تم ضغط الصورة بنجاح وجاهزة للحفظ!");
+					};
+					img.src = event.target.result;
+				};
+				reader.readAsDataURL(file);
+			});
+		}
+
+		// AI Generate Handler
+		var aiBtn = document.getElementById('ai-generate-btn');
+		if (aiBtn) {
+			aiBtn.addEventListener('click', async function() {
+				var titleInput = document.querySelector('input[name="title"]');
+				var title = titleInput ? titleInput.value : '';
+				if (!title) {
+					alert("الرجاء كتابة عنوان المقال أولاً ليتمكن الذكاء الاصطناعي من كتابته.");
+					return;
+				}
+				
+				var originalText = aiBtn.innerHTML;
+				aiBtn.innerHTML = "جاري الكتابة...";
+				aiBtn.disabled = true;
+
+				try {
+					var response = await fetch('/api/ai-advisor/generate-blog', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ title: title })
+					});
+					var data = await response.json();
+					if (response.ok) {
+						// 1. Fill Content
+						quill.clipboard.dangerouslyPasteHTML(data.content);
+						
+						// 2. Fill Tags
+						var tagsInput = document.querySelector('input[name="tags"]');
+						if (tagsInput) {
+							tagsInput.value = JSON.stringify(data.tags || []);
+						}
+
+						// 3. Fill Slug and Description
+						var slugInput = document.querySelector('input[name="slug"]');
+						if (slugInput && !slugInput.value) slugInput.value = data.slug;
+
+						var descInput = document.querySelector('input[name="description"]');
+						if (descInput && !descInput.value) descInput.value = data.description;
+
+						// 4. Fill Alt Text & Extras
+						var altInput = document.querySelector('input[name="imageAlt"]');
+						if (altInput && !altInput.value) altInput.value = data.imageAlt || title;
+						
+						var timeInput = document.querySelector('input[name="readingTime"]');
+						if (timeInput && !timeInput.value) timeInput.value = "5 دقائق";
+
+						// 5. Generate & Fill Image via Nano-Banana (Backend API)
+						var heroInput = document.querySelector('input[name="heroImage"]');
+						if (heroInput && data.imagePrompt) {
+							aiBtn.innerHTML = "جاري رسم الصورة بالموديل نانو بنانا...";
+							try {
+								var imgResponse = await fetch('/api/ai-advisor/generate-image', {
+									method: 'POST',
+									headers: { 'Content-Type': 'application/json' },
+									body: JSON.stringify({ prompt: data.imagePrompt })
+								});
+								var imgData = await imgResponse.json();
+								if (imgResponse.ok && imgData.imageUrl) {
+									heroInput.value = imgData.imageUrl;
+								}
+							} catch (imgErr) {
+								console.error("Image gen failed", imgErr);
+							}
+						}
+
+					} else {
+						alert("خطأ: " + data.error);
+					}
+				} catch (e) {
+					alert("فشل الاتصال.");
+				} finally {
+					aiBtn.innerHTML = originalText;
+					aiBtn.disabled = false;
+				}
+			});
+		}
+
+		// Auto-trigger AI if title is passed in URL
+		var urlParams = new URLSearchParams(window.location.search);
+		var aiTitle = urlParams.get('title');
+		if (aiTitle && aiBtn) {
+			var titleInput = document.querySelector('input[name="title"]');
+			if (titleInput && !titleInput.value) {
+				titleInput.value = aiTitle;
+				// Wait a moment for Quill to initialize, then trigger click
+				setTimeout(() => {
+					aiBtn.click();
+				}, 500);
+			}
+		}
+	});
+</script>
+<style is:global>
+	.ql-toolbar.ql-snow {
+		direction: ltr; 
+		background: #f8fafc;
+		border: none !important;
+		border-bottom: 1px solid #e2e8f0 !important;
+		padding: 1rem !important;
+	}
+	.ql-container.ql-snow {
+		border: none !important;
+		font-family: 'Cairo', sans-serif !important;
+		font-size: 1.1rem !important;
+	}
+	.ql-editor {
+		min-height: 300px;
+		padding: 1.5rem !important;
+	}
+	.ql-editor p {
+		margin-bottom: 1rem;
+	}
+</style>

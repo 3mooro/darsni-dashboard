@@ -59,7 +59,9 @@ if (Astro.request.method === "POST") {
   } as any;
 
   try {
+    post.slug = (post.slug || "").trim().toLowerCase();
     if (!post.slug || !post.title) throw new Error("يجب إدخال الرابط والعنوان.");
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug)) throw new Error("الرابط (Slug) يجب أن يكون بحروف إنجليزية صغيرة وأرقام وشرطات فقط — بدون حروف عربية أو مسافات أو رموز، مثال: present-simple-tense-explained");
     try { JSON.parse(post.tags); } catch { throw new Error("تنسيق JSON غير صحيح لحقل الوسوم (Tags)."); }
 
     const isoDate = new Date(post.pubDate).toISOString();
